@@ -1,0 +1,543 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------- ENUMS ---------------------------
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LEAVE
+  HOLIDAY
+}
+
+enum AttendanceSource {
+  MANUAL
+  SYSTEM
+}
+
+enum LeaveType {
+  SICK
+  CASUAL
+  EARNED
+  MATERNITY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+enum EnquiryChannel {
+  EMAIL
+  PHONE
+  CHAT
+  WHATSAPP
+  SOCIAL
+  OTHER
+}
+
+enum EnquirySource {
+  WEBSITE
+  REFERRAL
+  CAMPAIGN
+  PARTNER
+  OTHER
+}
+
+enum EnquiryStatus {
+  NEW          // just received
+  IN_PROGRESS  // being followed up
+  QUALIFIED    // ready to convert
+  DISQUALIFIED // invalid / spam
+  CONVERTED    // moved to Lead
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  LOST
+  WON
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+  ON_HOLD
+}
+
+enum DealStage {
+  PROSPECTING
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+// --------------------------- TENANT ---------------------------
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  email     String   @unique
+  phone     String
+  address   String
+  timezone  String   @default("UTC")
+
+  // Soft delete handling
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+
+  // Users belonging to this tenant
+  users User[]
+
+  // CRM Modules
+  enquiries    Enquiry[]
+  complaints   Complaint[]
+  leads        Lead[]
+  pipelines    Pipeline[]
+  deals        Deal[]
+  sales        Sale[]
+  appointments Appointment[]
+  clients      Client[]
+
+  // ERP & Finance
+  invoices Invoice[]
+  billings Billing[]
+  payrolls Payroll[]
+  projects Project[]
+
+  // HR & Attendance
+  attendances   Attendance[]
+  leaveRequests LeaveRequest[]
+  shifts        Shift[]
+
+  // Other features
+  notifications Notification[]
+  documents     Document[]
+  tasks         Task[]
+  logs          Logger[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+// --------------------------- USER ---------------------------
+model User {
+  id       String   @id @default(cuid())
+  tenantId String
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  roleId   String?
+  role     Role?    @relation(fields: [roleId], references: [id])
+
+  name     String
+  email    String   @unique
+  password String
+
+  // Leave Management
+  leaveRequests  LeaveRequest[] 
+  approvedLeaves LeaveRequest[] @relation("LeaveApprover") 
+
+  // Attendance & Shifts
+  attendances Attendance[]
+  shifts      Shift[]
+
+  // Tasks
+  tasks Task[]
+
+  // Logs & Notifications
+  logs          Logger[]
+  notifications Notification[]
+
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enquiriesCreated Enquiry[] @relation("UserEnquiriesCreated")
+  leadsCreated     Lead[]    @relation("UserLeadsCreated")
+  dealCreated Deal[] @relation("CreatedDeals")
+  dealsOwned Deal[] @relation("DealOwner")
+}
+
+
+// --------------------------- ROLE ---------------------------
+model Role {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  users       User[]
+  rolePermissions RolePermission[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model Permission {
+  id          String        @id @default(cuid())
+  action      String        @unique  
+  description String?
+  rolePermissions RolePermission[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model RolePermission {
+  id           String      @id @default(cuid())
+  roleId       String
+  permissionId String
+
+  role         Role        @relation(fields: [roleId], references: [id])
+  permission   Permission  @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId]) 
+}
+
+
+// --------------------------- ENQUIRY ---------------------------
+model Enquiry {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  subject   String
+  message   String
+
+  createdBy String?
+  createdByUser User? @relation("UserEnquiriesCreated", fields: [createdBy], references: [id])
+  
+  lead Lead?
+  // CRM-style extensions
+  channel   EnquiryChannel @default(EMAIL) // where it came from (email, call, chat, etc.)
+  source    EnquirySource  @default(WEBSITE) // marketing/source attribution
+  status    EnquiryStatus  @default(NEW)     // enquiry lifecycle
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- CLIENT ---------------------------
+model Client {
+  id           String        @id @default(cuid())
+  name         String
+  contacts     Contact[]
+  complaints   Complaint[]
+  invoices     Invoice[]
+  appointments Appointment[]
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+// --------------------------- CONTACT ---------------------------
+model Contact {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  name      String
+  email     String
+  phone     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- COMPLAINT ---------------------------
+model Complaint {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  subject   String
+  message   String
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- LEAD ---------------------------
+model Lead {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+
+  name       String
+  email      String?
+  phone      String?
+
+  // If converted from enquiry
+  enquiryId  String?   @unique
+  enquiry    Enquiry?  @relation(fields: [enquiryId], references: [id])
+
+  deals      Deal[]
+  pipelineId String?
+  pipeline   Pipeline? @relation(fields: [pipelineId], references: [id])
+
+  createdBy  String?
+  createdByUser User?  @relation("UserLeadsCreated", fields: [createdBy], references: [id])
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+
+// --------------------------- PIPELINE ---------------------------
+model Pipeline {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  leads     Lead[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- DEAL ---------------------------
+model Deal {
+  id          String     @id @default(cuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  leadId      String?    @unique
+  lead        Lead?      @relation(fields: [leadId], references: [id])
+  name        String
+  amount      Float      @default(0)
+  currency    String     @default("USD")
+  stage       DealStage  @default(PROSPECTING)
+  status      DealStatus @default(OPEN)
+  expectedClose DateTime?
+  closedAt    DateTime?
+  ownerId     String?        // sales rep or user who owns the deal
+  owner       User?          @relation("DealOwner",fields: [ownerId], references: [id])
+  sales       Sale[]
+  notes       String?
+  createdBy   String?
+  createdByUser User?        @relation("CreatedDeals", fields: [createdBy], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// --------------------------- SALE ---------------------------
+model Sale {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id])
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  amount    Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- APPOINTMENT ---------------------------
+model Appointment {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  title     String
+  date      DateTime
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- INVOICE ---------------------------
+model Invoice {
+  id        String        @id @default(cuid())
+  clientId  String
+  client    Client        @relation(fields: [clientId], references: [id])
+  tenantId  String
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  amount    Float
+  status    InvoiceStatus @default(PENDING)
+  billings  Billing[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+// --------------------------- BILLING ---------------------------
+model Billing {
+  id        String    @id @default(cuid())
+  invoiceId String
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id])
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  paidDate  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// --------------------------- PAYROLL ---------------------------
+model Payroll {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  employeeId String
+  salary     Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// --------------------------- PROJECT ---------------------------
+model Project {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- TASK & SUBTASK ---------------------------
+model Task {
+  id          String       @id @default(cuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id])
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  subTasks    SubTask[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model SubTask {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id])
+  title     String
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- ROSTER & SHIFT ---------------------------
+model Roster {
+  id          String       @id @default(cuid())
+  name        String
+  attendances Attendance[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Shift {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  startTime DateTime
+  endTime   DateTime
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --------------------------- ATTENDANCE ---------------------------
+model Attendance {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+  rosterId    String?
+  roster      Roster?          @relation(fields: [rosterId], references: [id])
+  date        DateTime
+  checkIn     DateTime?
+  checkOut    DateTime?
+  hoursWorked Float?
+  status      AttendanceStatus @default(PRESENT)
+  source      AttendanceSource @default(MANUAL)
+  tenantId    String
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+// --------------------------- LEAVE REQUEST ---------------------------
+model LeaveRequest {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id])
+  startDate  DateTime
+  endDate    DateTime
+  type       LeaveType
+  reason     String?
+  status     LeaveStatus @default(PENDING)
+  approvedBy String?
+  approver   User?       @relation("LeaveApprover", fields: [approvedBy], references: [id])
+  tenantId   String
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+// --------------------------- LOGGER ---------------------------
+model Logger {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  action    String              // e.g. CREATE_USER, LOGIN, DELETE_ROLE
+  entity    String?             // e.g. User, Role, Tenant
+  entityId  String?             // affected record id
+  details   Json?               // before/after values, extra info
+  ipAddress String?             // from req.ip
+  userAgent String?             // from req.headers["user-agent"]
+
+  status    String?              // SUCCESS or FAILURE
+  statusCode Int?
+  createdAt DateTime @default(now())
+}
+
+// --------------------------- NOTIFICATION ---------------------------
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// --------------------------- DOCUMENT ---------------------------
+model Document {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
